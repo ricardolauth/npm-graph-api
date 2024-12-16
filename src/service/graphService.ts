@@ -49,7 +49,7 @@ export const getGraphForPackageName = ({
 // };
 
 export const getGraphForJson = async (json: PackageJson) => {
-  setInterval(() => console.log(pool.stats()), 1000);
+  //setInterval(() => console.log(pool.stats()), 1000);
   try {
     const data = await Promise.all(
       Object.entries(json.dependencies ?? {}).map(([name, version]) =>

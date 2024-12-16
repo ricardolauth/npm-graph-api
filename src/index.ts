@@ -1,4 +1,4 @@
-import express, { Express, Request, Response } from "express";
+import express, { Express, NextFunction, Request, Response } from "express";
 import {
   getGraphForJson,
   getGraphForPackageName,
@@ -16,6 +16,14 @@ type ReqParams = {
 };
 
 app.use(express.json());
+app.use(async (err: any, req: Request, res: Response, next: NextFunction) => {
+  console.log(err);
+  res.status(err.status || 500).json({
+    status_code: err.status_code,
+    message: err.message,
+    error: err.error,
+  });
+});
 
 app.get(
   "/package",
