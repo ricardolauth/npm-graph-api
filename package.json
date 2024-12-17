@@ -1,17 +1,13 @@
 {
-  "name": "node-ts-esm-express-template",
+  "name": "npm-graph-api",
   "version": "1.0.0",
-  "description": "A Node.js template with TypeScript, ES modules, and Express.js setup.",
+  "description": "Load NPM Package Dependencies",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "npx tsc",
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/joaorafaelsantos/node-ts-esm-express-template.git"
   },
   "keywords": [
     "node",
@@ -20,7 +16,7 @@
     "express",
     "template"
   ],
-  "author": "João Santos",
+  "author": "Ricardo Lauth",
   "license": "MIT",
   "devDependencies": {
     "@types/express": "^5.0.0",
@@ -29,9 +25,11 @@
     "typescript": "^5.6.3"
   },
   "dependencies": {
+    "async": "^3.2.6",
     "axios": "^1.7.9",
     "dotenv": "^16.4.7",
     "express": "^4.21.1",
+    "modern-async": "^2.0.4",
     "p-queue": "^8.0.1",
     "semver": "^7.6.3"
   }

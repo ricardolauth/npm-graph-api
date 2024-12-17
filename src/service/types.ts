@@ -59,6 +59,7 @@ export interface Version {
   _nodeVersion?: string;
   dependencies?: { [key: string]: string };
   devDependencies?: { [key: string]: string };
+  peerDependencies?: { [key: string]: string };
 
   keywords?: string[];
   deprecated?: boolean | string;
@@ -109,4 +110,19 @@ export interface GitHubUser {
   following: number;
   created_at: Date;
   updated_at: Date;
+}
+
+export interface Metadata {
+  _id: string;
+  name: string;
+  version: string;
+  description: string;
+  maintainers?: Maintainer[];
+  repository: Repository;
+  keywords?: string[];
+  homepage?: string;
+  deprecated?: boolean | string;
+  license?: LicenseEnum;
+  "dist-tags": DistTags;
+  peerDependencies?: { [key: string]: string };
 }

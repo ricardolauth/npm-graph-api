@@ -1,9 +1,15 @@
-import { Package } from "./types.js";
+import { Metadata, Package, Version } from "./types.js";
 import axios from "axios";
 // @ts-ignore
 import { SemVer, maxSatisfying } from "semver";
+import { distinctByKey, toMetadate } from "./utils.js";
+//import PQueue from "p-queue";
+// @ts-ignore
+import queue from "async/queue";
 
-//const queue = new PQueue({ concurrency: 1000 });
+//const queue = new Queue(64);
+
+//const queue = new PQueue({ concurrency: 64 });
 
 const registry = "https://registry.npmjs.org"; // URL of the registry to ls.
 
@@ -11,10 +17,15 @@ type Task = {
   name: string;
   version: string;
   parent: Record<string, object>;
-  flat: Package[];
+  flat: Metadata[];
+  depth: number;
 };
 
-const _loadPackageJson = async (task: Task) => {
+const q = queue(function (task: Task, done: () => void) {
+  _loadPackageJson(task, done);
+}, 64);
+
+const _loadPackageJson = async (task: Task, done: () => void) => {
   const { name, version } = task;
   const couchPackageName = name.replace("/", "%2f");
 
@@ -23,34 +34,34 @@ const _loadPackageJson = async (task: Task) => {
 
     if (!response || response.status < 200 || response.status >= 400) {
       console.log(`Could not load ${name}@${version}`);
-      return;
+      return done();
     }
 
-    await _walkDependencies(task, response.data);
+    _walkDependencies(task, response.data);
   } catch (err) {
     console.error(err);
     console.log(`Error loading ${name}@${version}: ${err}`);
+  } finally {
+    done();
   }
 };
 
-const _walkDependencies = async (task: Task, packageJson: Package) => {
+const _walkDependencies = (task: Task, packageJson: Package) => {
+  //if (task.depth === 0) return;
   const version = _guessVersion(task.version, packageJson);
-  const dependencies = { ...packageJson.versions[version].dependencies }; // Spread instead of _.extend
-  const fullName = `${packageJson.name}@${version}`;
-  const parent = (task.parent[fullName] = {});
+  const dependencies = { ...packageJson.versions[version].dependencies };
+  const parent = (task.parent[packageJson.versions[version]._id] = {});
 
-  task.flat.push(packageJson);
+  task.flat.push(toMetadate(packageJson, version));
   const dependencyTasks = Object.keys(dependencies).map((depName) => ({
     ...task,
     name: depName,
     version: dependencies[depName],
     parent,
+    depth: task.depth - 1,
   }));
 
-  // Process dependencies in parallel
-  await Promise.all(
-    dependencyTasks.map((depTask) => _loadPackageJson(depTask))
-  );
+  dependencyTasks.forEach((depTask) => q.push(depTask));
 };
 
 const _guessVersion = (versionString: string, packageJson: Package) => {
@@ -81,14 +92,24 @@ export const ls = async (
   version: string
 ): Promise<Record<string, object>> => {
   let tree = {};
-  let flat: Package[] = [];
-  const task = {
+  let flat: Metadata[] = [];
+  const task: Task = {
     name,
     version,
     parent: tree,
     flat,
+    depth: 7,
   };
 
-  await _loadPackageJson(task);
-  return { tree, flat };
+  q.push(task);
+
+  return new Promise((resolve, reject) => {
+    q.drain(() => {
+      resolve({ tree, flat: distinctByKey(flat, "_id") });
+    });
+
+    q.error((err: any) => reject(err));
+
+    q.resume();
+  });
 };
