@@ -1,8 +1,9 @@
 import { Metadata, Package, Version } from "./types.js";
-import axios from "axios";
+import axios, { AxiosResponse } from "axios";
 // @ts-ignore
 import { SemVer, maxSatisfying } from "semver";
-import { distinctByKey, toMetadate } from "./utils.js";
+import { distinctByKey, distinctFlat, toMetadate } from "./utils.js";
+import npa from "npm-package-arg";
 //import PQueue from "p-queue";
 // @ts-ignore
 import queue from "async/queue";
@@ -18,80 +19,102 @@ type Task = {
   version: string;
   parent: Record<string, object>;
   flat: Metadata[];
+  visited: string[];
   depth: number;
+  cycles: string[][];
 };
 
-const q = queue(function (task: Task, done: () => void) {
-  _loadPackageJson(task, done);
-}, 64);
-
-const _loadPackageJson = async (task: Task, done: () => void) => {
-  const { name, version } = task;
-  const couchPackageName = name.replace("/", "%2f");
-
-  try {
-    const response = await axios.get(`${registry}/${couchPackageName}`);
-
-    if (!response || response.status < 200 || response.status >= 400) {
-      console.log(`Could not load ${name}@${version}`);
-      return done();
-    }
-
-    _walkDependencies(task, response.data);
-  } catch (err) {
-    console.error(err);
-    console.log(`Error loading ${name}@${version}: ${err}`);
-  } finally {
-    done();
-  }
-};
-
-const _walkDependencies = (task: Task, packageJson: Package) => {
-  //if (task.depth === 0) return;
-  const version = _guessVersion(task.version, packageJson);
-  const dependencies = { ...packageJson.versions[version].dependencies };
-  const parent = (task.parent[packageJson.versions[version]._id] = {});
-
-  task.flat.push(toMetadate(packageJson, version));
-  const dependencyTasks = Object.keys(dependencies).map((depName) => ({
-    ...task,
-    name: depName,
-    version: dependencies[depName],
-    parent,
-    depth: task.depth - 1,
-  }));
-
-  dependencyTasks.forEach((depTask) => q.push(depTask));
-};
-
-const _guessVersion = (versionString: string, packageJson: Package) => {
-  if (versionString === "latest") versionString = "*";
-
-  const availableVersions = Object.keys(packageJson.versions);
-  let version = maxSatisfying(availableVersions, versionString, true);
-
-  if (
-    !version &&
-    versionString === "*" &&
-    availableVersions.every((av) => new SemVer(av, true).prerelease.length)
-  ) {
-    version = packageJson["dist-tags"]?.latest;
-  }
-
-  if (!version) {
-    throw new Error(
-      `Could not find a satisfactory version for ${versionString}`
-    );
-  }
-
-  return version;
-};
-
-export const ls = async (
+export function ls(
   name: string,
   version: string
-): Promise<Record<string, object>> => {
+): Promise<Record<string, object>> {
+  const cache = new Map<string, AxiosResponse<any, any>>();
+  const q = queue(function (task: Task, done: () => void) {
+    _loadPackageJson(task, done);
+  }, 32);
+
+  q.pause();
+
+  const _loadPackageJson = async (task: Task, done: () => void) => {
+    const { name, version } = task;
+    const couchPackageName = npa(name).escapedName!;
+
+    try {
+      let response = cache.get(couchPackageName);
+      if (!response) {
+        //console.log("loading", task.name, task.version);
+        response = await axios.get(`${registry}/${couchPackageName}`);
+        if (!response || response.status < 200 || response.status >= 400) {
+          console.log(`Could not load ${name}@${version}`);
+          return done();
+        }
+
+        cache.set(couchPackageName, response);
+      } else {
+        //console.log("cache hit", name, version);
+      }
+
+      _walkDependencies(task, response.data);
+      done();
+    } catch (err) {
+      console.error(err);
+      console.log(`Error loading ${name}@${version}: ${err}`);
+      done();
+    }
+  };
+
+  const _walkDependencies = (task: Task, packageJson: Package) => {
+    const version = _guessVersion(task.version, packageJson);
+    const dependencies = { ...packageJson.versions[version].dependencies };
+    const id = `${packageJson.name}@${version}`;
+    const parent = (task.parent[id] = {});
+
+    if (task.visited.some((v) => v === id)) {
+      const idx = task.visited.indexOf(id);
+      const cycle = [...task.visited];
+      cycle.splice(0, idx);
+      task.cycles.push(cycle);
+      return;
+    }
+
+    task.flat.push(toMetadate(packageJson, version));
+    const dependencyTasks = Object.keys(dependencies).map((depName) => ({
+      ...task,
+      name: depName,
+      version: dependencies[depName],
+      parent,
+      visited: [...task.visited, id],
+      depth: task.depth - 1,
+    }));
+
+    dependencyTasks.forEach((depTask) => q.push(depTask));
+  };
+
+  const _guessVersion = (versionString: string, packageJson: Package) => {
+    if (versionString === "latest") versionString = "*";
+
+    const availableVersions = Object.keys(packageJson.versions);
+    let version = maxSatisfying(availableVersions, versionString, true);
+
+    if (
+      !version &&
+      versionString === "*" &&
+      availableVersions.every((av) => new SemVer(av, true).prerelease.length)
+    ) {
+      version = packageJson["dist-tags"]?.latest;
+    }
+
+    if (!version) {
+      throw new Error(
+        `Could not find a satisfactory version for ${versionString}`
+      );
+    }
+
+    return version;
+  };
+
   let tree = {};
+  let cycles: string[][] = [];
   let flat: Metadata[] = [];
   const task: Task = {
     name,
@@ -99,17 +122,28 @@ export const ls = async (
     parent: tree,
     flat,
     depth: 7,
+    visited: [],
+    cycles,
   };
 
   q.push(task);
 
   return new Promise((resolve, reject) => {
     q.drain(() => {
-      resolve({ tree, flat: distinctByKey(flat, "_id") });
+      console.log("done");
+      resolve({
+        tree,
+        flat: distinctByKey(flat, "_id"),
+        cycles: distinctFlat(cycles),
+      });
     });
 
-    q.error((err: any) => reject(err));
+    q.error((err: any) => {
+      console.log("error", err);
+      reject(err);
+    });
 
+    // start working
     q.resume();
   });
-};
+}

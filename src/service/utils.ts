@@ -4,6 +4,11 @@ export const distinctByKey = <T>(array: T[], key: keyof T) => [
   ...new Map(array.map((item) => [item[key], item])).values(),
 ];
 
+export const distinctFlat = <T>(array: T[][]): T[][] =>
+  [...new Set(array.map((v) => v.join(";"))).values()].map((v) =>
+    v.split(";")
+  ) as T[][];
+
 export const toMetadate = (pack: Package, versionStr: string): Metadata => {
   const {
     _id,
