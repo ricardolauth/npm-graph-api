@@ -6,7 +6,7 @@ import { distinctByKey, distinctFlat, toMetadate } from "./utils.js";
 import npa from "npm-package-arg";
 //import PQueue from "p-queue";
 // @ts-ignore
-import queue from "async/queue";
+import queue from "async/queue.js";
 
 //const queue = new Queue(64);
 
