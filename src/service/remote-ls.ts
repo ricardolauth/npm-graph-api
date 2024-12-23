@@ -17,11 +17,9 @@ const registry = "https://registry.npmjs.org"; // URL of the registry to ls.
 type Task = {
   name: string;
   version: string;
-  parent: Record<string, object>;
-  flat: Metadata[];
-  visited: string[];
-  depth: number;
-  cycles: string[][];
+  parentId?: string;
+  nodes: Metadata[];
+  edges: string[];
 };
 
 export function ls(
@@ -67,24 +65,21 @@ export function ls(
     const version = _guessVersion(task.version, packageJson);
     const dependencies = { ...packageJson.versions[version].dependencies };
     const id = `${packageJson.name}@${version}`;
-    const parent = (task.parent[id] = {});
+    if (task.parentId) {
+      const edge = `${task.parentId}->${id}`;
+      task.edges.push(edge);
+    }
 
-    if (task.visited.some((v) => v === id)) {
-      const idx = task.visited.indexOf(id);
-      const cycle = [...task.visited];
-      cycle.splice(0, idx);
-      task.cycles.push(cycle);
+    if (task.nodes.some((n) => n._id === id)) {
       return;
     }
 
-    task.flat.push(toMetadate(packageJson, version));
+    task.nodes.push(toMetadate(packageJson, version));
     const dependencyTasks = Object.keys(dependencies).map((depName) => ({
       ...task,
       name: depName,
       version: dependencies[depName],
-      parent,
-      visited: [...task.visited, id],
-      depth: task.depth - 1,
+      parentId: id,
     }));
 
     dependencyTasks.forEach((depTask) => q.push(depTask));
@@ -92,6 +87,10 @@ export function ls(
 
   const _guessVersion = (versionString: string, packageJson: Package) => {
     if (versionString === "latest") versionString = "*";
+    const idx = versionString.lastIndexOf("@");
+    if (idx !== -1) {
+      versionString = versionString.slice(idx + 1);
+    }
 
     const availableVersions = Object.keys(packageJson.versions);
     let version = maxSatisfying(availableVersions, versionString, true);
@@ -113,17 +112,13 @@ export function ls(
     return version;
   };
 
-  let tree = {};
-  let cycles: string[][] = [];
-  let flat: Metadata[] = [];
+  let edges: string[] = [];
+  let nodes: Metadata[] = [];
   const task: Task = {
     name,
     version,
-    parent: tree,
-    flat,
-    depth: 7,
-    visited: [],
-    cycles,
+    nodes,
+    edges,
   };
 
   q.push(task);
@@ -132,9 +127,8 @@ export function ls(
     q.drain(() => {
       console.log("done");
       resolve({
-        tree,
-        flat: distinctByKey(flat, "_id"),
-        cycles: distinctFlat(cycles),
+        nodes,
+        edges,
       });
     });
 
