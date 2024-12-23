@@ -2,7 +2,7 @@ import { Metadata, Package, Version } from "./types.js";
 import axios, { AxiosResponse } from "axios";
 // @ts-ignore
 import { SemVer, maxSatisfying } from "semver";
-import { distinctByKey, distinctFlat, toMetadate } from "./utils.js";
+import { toMetadate } from "./utils.js";
 import npa from "npm-package-arg";
 //import PQueue from "p-queue";
 // @ts-ignore
